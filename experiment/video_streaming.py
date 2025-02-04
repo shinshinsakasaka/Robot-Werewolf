@@ -37,3 +37,20 @@ def record_multiple_cameras(camera_indices, fps=30, resolution=(640, 480)):
 
         if not frames:
             break
+
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    for cap in captures:
+        cap.release()
+    for writer in writers:
+        writer.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    camera_indices = [0]
+    try:
+        record_multiple_cameras(camera_indices)
+    except Exception as e:
+        print(f"An error occurred: {e}")
