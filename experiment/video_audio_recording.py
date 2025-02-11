@@ -3,22 +3,27 @@ import numpy as np
 import pyaudio
 import wave
 import threading
-import keyboard
+import sys
+import select
 
-def record_audio(filename="audio_output.wav", channels=1, rate=44100, chunk=1024, format=pyaudio.paInt16):
+stop_recording = threading.Event()  # Event to signal audio thread to stop
+
+
+def record_audio(filename="audio_output.wav", channels=1, rate=48000, chunk=1024, format=pyaudio.paInt16):
     """Function to continuously record audio until 'q' is pressed."""
     audio = pyaudio.PyAudio()
-
     stream = audio.open(format=format, channels=channels, rate=rate, input=True, frames_per_buffer=chunk)
-    
-    print("Recording audio... Press 'q' to stop.")
+
+    print("Recording audio... Press 'q' and ENTER to stop.")
 
     frames = []
-
-    # Loop until 'q' is pressed
-    while not keyboard.is_pressed('q'):
-        data = stream.read(chunk)
-        frames.append(data)
+    while not stop_recording.is_set():
+        try:
+            data = stream.read(chunk, exception_on_overflow=False)
+            frames.append(data)
+        except IOError as e:
+            print(f"Audio buffer overflow error: {e}")
+            continue
 
     print("Stopping audio recording...")
 
@@ -54,10 +59,10 @@ def record_multiple_cameras(camera_indices, fps=30, resolution=(640, 480), audio
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
 
-    # Create a VideoWriter for each camera
-    fourcc = cv2.VideoWriter_fourcc(*'H264')
+    # Use mp4v instead of H264 for macOS compatibility
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     writers = [
-        cv2.VideoWriter(f"output_camera_{camera_indices[i]}.mov", fourcc, fps, resolution)
+        cv2.VideoWriter(f"output_camera_{camera_indices[i]}.mp4", fourcc, fps, resolution)
         for i in range(num_cameras)
     ]
 
@@ -65,8 +70,8 @@ def record_multiple_cameras(camera_indices, fps=30, resolution=(640, 480), audio
     audio_thread = threading.Thread(target=record_audio, args=(audio_filename,))
     audio_thread.start()
 
-    print("Recording video...")
-    
+    print("Recording video... Press 'q' and ENTER to stop.")
+
     while True:
         frames = []
         for i, cap in enumerate(captures):
@@ -80,8 +85,11 @@ def record_multiple_cameras(camera_indices, fps=30, resolution=(640, 480), audio
         if not frames:
             break
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        # Check for 'q' input from stdin
+        if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+            if sys.stdin.read(1) == 'q':
+                stop_recording.set()  # Signal the audio thread to stop
+                break
 
     # Release video resources
     for cap in captures:
@@ -94,9 +102,11 @@ def record_multiple_cameras(camera_indices, fps=30, resolution=(640, 480), audio
     audio_thread.join()  # Ensure audio recording completes before exiting
     print("Recording complete.")
 
+
 if __name__ == "__main__":
-    camera_indices = [0, 1]  # Specify USB camera indices
+    camera_indices = [0]  # Specify USB camera indices
     try:
         record_multiple_cameras(camera_indices)
     except Exception as e:
         print(f"An error occurred: {e}")
+
